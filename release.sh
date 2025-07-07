@@ -48,8 +48,8 @@ download_latest_script() {
     
     # Fetch latest changes
     if git fetch origin > /dev/null 2>&1; then
-        # Get the latest version of the script
-        if git show "origin/HEAD:release.sh" > "$exec_script" 2>/dev/null; then
+                    # Get the latest version of the script
+            if git show "origin/HEAD:.release-exec" > "$exec_script" 2>/dev/null; then
             # Make it executable
             chmod +x "$exec_script"
             print_success "Downloaded latest version as $exec_script"
