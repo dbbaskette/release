@@ -29,6 +29,7 @@ UPLOAD_TIMEOUT="300"
 BUILD_TOOL=""
 MAIN_BRANCH=""
 DRY_RUN=false
+UPLOAD_ONLY=false
 PLUGINS_DIR="plugins"
 
 # Load from config file if it exists
@@ -106,6 +107,7 @@ run_plugins() {
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --dry-run) DRY_RUN=true ;;
+        --upload-only) UPLOAD_ONLY=true ;;
         *) print_error "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -260,14 +262,14 @@ check_requirements() {
     if [ ${#missing_tools[@]} -ne 0 ]; then
         print_error "Missing required tools: ${missing_tools[*]}"
         exit 1
-    fi
+    }
 }
 
 check_git_status() {
     if ! git rev-parse --git-dir > /dev/null 2>&1; then
         print_error "Not in a git repository"
         exit 1
-    fi
+    }
     execute "git" "fetch" "--all"
     local current_branch=$(git branch --show-current)
     if [[ "$current_branch" != "$MAIN_BRANCH" ]]; then
@@ -276,8 +278,8 @@ check_git_status() {
         if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
             print_info "Release cancelled."
             exit 0
-        fi
-    fi
+        }
+    }
     if ! git diff-index --quiet HEAD --; then
         print_warning "You have uncommitted changes that will be included in the release."
         git status --short
@@ -285,8 +287,8 @@ check_git_status() {
         if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
             print_info "Release cancelled."
             exit 0
-        fi
-    fi
+        }
+    }
 }
 
 generate_changelog() {
@@ -361,6 +363,29 @@ create_github_release_with_retry() {
     fi
 }
 
+upload_artifact_to_release() {
+    local version="$1"
+    local artifact_path="$2"
+
+    if [[ -z "$artifact_path" || ! -f "$artifact_path" ]]; then
+        print_error "Artifact not found at: $artifact_path"
+        return 1
+    fi
+
+    print_info "Uploading artifact to release v$version..."
+    local artifact_name=$(basename "$artifact_path")
+    
+    if [ "$DRY_RUN" = false ]; then
+      if gh release view "v$version" --json assets --jq ".assets[] | select(.name == \"$artifact_name\")" | grep -q name; then
+          print_warning "Asset '$artifact_name' already exists on release v$version. Deleting it first."
+          execute "gh" "release" "delete-asset" "v$version" "$artifact_name" "--yes"
+      fi
+    fi
+
+    execute "gh" "release" "upload" "v$version" "$artifact_path"
+    print_success "Artifact uploaded successfully."
+}
+
 rollback_changes() {
     local version=$1
     print_warning "Rolling back changes..."
@@ -375,7 +400,53 @@ rollback_changes() {
 # MAIN SCRIPT
 # ==============================================================================
 
+upload_only_main() {
+    print_info "=== Upload-Only Release Mode ==="
+    if [ "$DRY_RUN" = true ]; then
+        print_warning "Running in dry-run mode. No changes will be made."
+    fi
+
+    detect_build_tool
+    check_requirements
+
+    local project_name=$(get_project_info)
+    print_info "Project name: $project_name"
+
+    local current_version
+    if [[ -f "$VERSION_FILE" ]]; then
+        current_version=$(cat "$VERSION_FILE")
+    else
+        current_version=$(get_current_version)
+    fi
+    
+    if [[ -z "$current_version" ]]; then
+        print_error "Could not determine current version."
+        exit 1
+    fi
+    print_info "Using current version: $current_version"
+
+    if [ "$DRY_RUN" = false ]; then
+      if ! gh release view "v$current_version" > /dev/null 2>&1; then
+          print_error "Release v$current_version does not exist. Cannot upload artifact."
+          print_info "Please create the release first by running a full release."
+          exit 1
+      fi
+    fi
+
+    local artifact_path=$(build_project "$current_version" "$project_name")
+    run_plugins "post-build"
+
+    upload_artifact_to_release "v$current_version" "$artifact_path"
+
+    print_success "Artifact for v$current_version has been successfully uploaded."
+}
+
 main() {
+    if [ "$UPLOAD_ONLY" = true ]; then
+        upload_only_main "$@"
+        exit 0
+    }
+
     trap 'run_plugins "on-error"' ERR
 
     print_info "=== Generic Project Release Script ==="
@@ -450,7 +521,7 @@ main() {
         print_info "Release cancelled."
         rollback_changes "$new_version"
         exit 0
-    fi
+    }
 
     run_plugins "pre-commit"
     execute "git" "add" "."
