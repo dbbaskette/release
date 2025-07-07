@@ -27,7 +27,7 @@ DEFAULT_STARTING_VERSION="1.0.0"
 UPLOAD_RETRY_COUNT="3"
 UPLOAD_TIMEOUT="300"
 BUILD_TOOL=""
-MAIN_BRANCH="main"
+MAIN_BRANCH=""
 DRY_RUN=false
 PLUGINS_DIR="plugins"
 
@@ -76,6 +76,7 @@ print_error() {
 execute() {
     if [ "$DRY_RUN" = true ]; then
         print_info "[DRY RUN] Would execute: $@"
+        return 0
     else
         print_info "Executing: $@"
         "$@"
@@ -131,6 +132,30 @@ detect_build_tool() {
     print_info "Detected build tool: $BUILD_TOOL"
 }
 
+detect_main_branch() {
+    if [[ -n "$MAIN_BRANCH" ]]; then
+        print_info "Using main branch from config: $MAIN_BRANCH"
+        return
+    }
+
+    local remote_head=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | cut -d' ' -f5)
+    if [[ -n "$remote_head" && "$remote_head" != "(unknown)" ]]; then
+        MAIN_BRANCH=$remote_head
+        print_info "Auto-detected main branch from remote: $MAIN_BRANCH"
+        return
+    }
+
+    if git show-ref --verify --quiet refs/heads/main; then
+        MAIN_BRANCH="main"
+    elif git show-ref --verify --quiet refs/heads/master; then
+        MAIN_BRANCH="master"
+    else
+        print_warning "Could not auto-detect main branch. Using fallback: main. Set MAIN_BRANCH in .release.conf to override."
+        MAIN_BRANCH="main"
+    fi
+    print_info "Using detected/fallback main branch: $MAIN_BRANCH"
+}
+
 get_project_info() {
     case "$BUILD_TOOL" in
         "maven")
@@ -141,7 +166,6 @@ get_project_info() {
             xmlstarlet sel -N pom=http://maven.apache.org/POM/4.0.0 -t -v "/pom:project/pom:artifactId" pom.xml
             ;;
         "gradle")
-            # This is a simplification. A real implementation would need to parse the build.gradle file.
             grep -oP "rootProject.name = '\K[^']+" settings.gradle.kts
             ;;
     esac
@@ -165,7 +189,6 @@ update_version() {
             execute "mvn" "versions:set" "-DnewVersion=$new_version" "-DgenerateBackupPoms=false"
             ;;
         "gradle")
-            # This is a simplification. A real implementation would need to parse and update the build.gradle file.
             execute "sed" "-i" "s/version = '.*'/version = '$new_version'/" "build.gradle.kts"
             ;;
     esac
@@ -248,17 +271,17 @@ check_git_status() {
     execute "git" "fetch" "--all"
     local current_branch=$(git branch --show-current)
     if [[ "$current_branch" != "$MAIN_BRANCH" ]]; then
-        print_warning "You are not on the main branch ($MAIN_BRANCH). Continue? (y/N)"
-        read -r response
-        if [[ "$response" != "y" ]]; then
+        print_warning "You are not on the main branch ($MAIN_BRANCH). This is the branch that will be tagged for release."
+        read -p "Do you want to continue? (y/N): " continue_choice
+        if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
             print_info "Release cancelled."
             exit 0
         fi
     fi
     if ! git diff-index --quiet HEAD --; then
-        print_warning "You have uncommitted changes."
+        print_warning "You have uncommitted changes that will be included in the release."
         git status --short
-        read -p "Continue? (y/N): " continue_choice
+        read -p "Do you want to continue? (y/N): " continue_choice
         if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
             print_info "Release cancelled."
             exit 0
@@ -270,31 +293,80 @@ generate_changelog() {
     local latest_tag=$(git describe --tags --abbrev=0 2>/dev/null)
     if [[ -z "$latest_tag" ]]; then
         print_warning "No previous tag found. Changelog will include all commits."
-        execute "git" "log" "--pretty=format:%s"
+        git log --pretty=format:%s
     else
         print_info "Generating changelog since tag $latest_tag"
-        execute "git" "log" "${latest_tag}..HEAD" "--pretty=format:%s"
+        git log "${latest_tag}..HEAD" "--pretty=format:%s"
     fi
 }
 
-create_github_release() {
+create_github_release_with_retry() {
     local version="$1"
     local title="$2"
     local notes="$3"
-    local jar_path="$4"
-    local cmd="gh release create $version --title '$title' --notes '$notes'"
-    if [[ -n "$jar_path" && -f "$jar_path" ]]; then
-        cmd="$cmd '$jar_path'"
+    local artifact_path="$4"
+
+    print_info "Configuring GitHub CLI timeout to ${UPLOAD_TIMEOUT} seconds"
+    export GH_REQUEST_TIMEOUT="${UPLOAD_TIMEOUT}s"
+
+    local attempt=1
+    local max_attempts=$UPLOAD_RETRY_COUNT
+
+    while [ $attempt -le $max_attempts ]; do
+        if [[ -n "$artifact_path" && -f "$artifact_path" ]]; then
+            print_info "Release creation attempt $attempt of $max_attempts with attachment: $artifact_path"
+            local artifact_size=$(du -h "$artifact_path" | cut -f1)
+            print_info "Artifact file size: $artifact_size"
+
+            local release_cmd="gh release create \"$version\" --title \"$title\" --notes \"$notes\" \"$artifact_path\""
+            
+            if [ "$DRY_RUN" = true ]; then
+                execute "bash" "-c" "$release_cmd"
+                return 0
+            fi
+
+            if bash -c "$release_cmd"; then
+                print_success "GitHub release created successfully with attachment!"
+                return 0
+            else
+                local exit_code=$?
+                print_warning "Attempt $attempt failed (exit code: $exit_code)."
+                if [ $attempt -eq $max_attempts ]; then
+                    print_warning "All attachment upload attempts failed. Creating release without attachment..."
+                    break
+                else
+                    print_info "Waiting 10 seconds before retry..."
+                    sleep 10
+                fi
+            fi
+        else
+            # No artifact, just create release and exit loop
+            break
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    print_info "Creating GitHub release without attachment..."
+    local final_cmd="gh release create \"$version\" --title \"$title\" --notes \"$notes\""
+    if execute "bash" "-c" "$final_cmd"; then
+        print_success "GitHub release created successfully!"
+        if [[ -n "$artifact_path" ]]; then
+            print_warning "Could not attach artifact: $artifact_path"
+            print_info "Manual upload command: gh release upload $version '$artifact_path'"
+        fi
+        return 0
+    else
+        print_error "Failed to create GitHub release."
+        return 1
     fi
-    execute "bash" "-c" "$cmd"
 }
 
 rollback_changes() {
     local version=$1
     print_warning "Rolling back changes..."
     run_plugins "on-error"
-    execute "git" "tag" "-d" "$version"
-    execute "git" "push" "--delete" "origin" "$version"
+    execute "git" "tag" "-d" "v$version"
+    execute "git" "push" "--delete" "origin" "v$version"
     execute "git" "reset" "--hard" "HEAD~1"
     execute "git" "push" "--force"
 }
@@ -314,6 +386,7 @@ main() {
     run_plugins "pre-release"
 
     detect_build_tool
+    detect_main_branch
     check_requirements
     check_git_status
 
@@ -351,7 +424,7 @@ main() {
     esac
     print_info "New version: $new_version"
 
-    echo "$new_version" > "$VERSION_FILE"
+    execute "echo" "$new_version" ">" "$VERSION_FILE"
     update_version "$new_version"
 
     local changelog=$(generate_changelog)
@@ -375,7 +448,7 @@ main() {
     read -p "Proceed? (y/N): " proceed_choice
     if [[ ! "$proceed_choice" =~ ^[Yy]$ ]]; then
         print_info "Release cancelled."
-        rollback_changes "v$new_version"
+        rollback_changes "$new_version"
         exit 0
     fi
 
@@ -387,14 +460,14 @@ main() {
     execute "git" "tag" "-a" "v$new_version" "-m" "$commit_msg"
     execute "git" "push" "origin" "v$new_version"
 
-    local jar_path=$(build_project "$new_version" "$project_name")
+    local artifact_path=$(build_project "$new_version" "$project_name")
     run_plugins "post-build"
 
-    if ! create_github_release "v$new_version" "Release v$new_version" "$release_notes" "$jar_path"; then
+    if ! create_github_release_with_retry "v$new_version" "Release v$new_version" "$release_notes" "$artifact_path"; then
         print_error "Failed to create GitHub release."
         read -p "Rollback changes? (y/N): " rollback_choice
         if [[ "$rollback_choice" =~ ^[Yy]$ ]]; then
-            rollback_changes "v$new_version"
+            rollback_changes "$new_version"
         fi
         exit 1
     fi
