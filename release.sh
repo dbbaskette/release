@@ -120,8 +120,13 @@ done
 # SELF-UPDATE MECHANISM
 # ==============================================================================
 
+# Check if we're running as the downloaded script
+if [[ "${BASH_SOURCE[0]}" == "./.release-exec" ]]; then
+    print_info "Running as downloaded script: .release-exec"
+fi
+
 self_update() {
-    # Only update if we're in a git repository and not in dry-run mode
+    # Only update if we're not in dry-run mode and update is not skipped
     if [[ "$DRY_RUN" = true || "$SKIP_UPDATE" = true ]]; then
         return 0
     fi
@@ -131,40 +136,40 @@ self_update() {
         return 0
     fi
 
-    # Get the current script path
-    local script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-    
     # Check if there are remote changes
     local current_commit=$(git rev-parse HEAD 2>/dev/null)
     local remote_commit=$(git ls-remote origin HEAD 2>/dev/null | cut -f1)
     
     if [[ -n "$current_commit" && -n "$remote_commit" && "$current_commit" != "$remote_commit" ]]; then
-        print_info "New version of release.sh available. Updating..."
+        print_info "New version of release.sh available. Checking for existing backup..."
         
-        # Fetch latest changes
-        if git fetch origin > /dev/null 2>&1; then
-            # Get the latest version of the script
-            local temp_script=$(mktemp)
-            if git show "origin/HEAD:release.sh" > "$temp_script" 2>/dev/null; then
-                # Make it executable
-                chmod +x "$temp_script"
-                
-                # Replace the current script with the updated version
-                if mv "$temp_script" "$script_path"; then
-                    print_success "Updated release.sh to latest version"
+        # Check if we already have a backup script
+        local exec_script=".release-exec"
+        if [[ -f "$exec_script" ]]; then
+            print_info "Found existing backup script: $exec_script"
+            print_info "Executing backup version..."
+            exec "./$exec_script" "$@"
+        else
+            print_info "Downloading latest version as $exec_script..."
+            
+            # Fetch latest changes
+            if git fetch origin > /dev/null 2>&1; then
+                # Get the latest version of the script
+                if git show "origin/HEAD:release.sh" > "$exec_script" 2>/dev/null; then
+                    # Make it executable
+                    chmod +x "$exec_script"
                     
-                    # Re-execute the updated script with the same arguments
-                    exec "$script_path" "$@"
+                    print_success "Downloaded latest version as $exec_script"
+                    print_info "Executing latest version..."
+                    
+                    # Execute the downloaded script with the same arguments
+                    exec "./$exec_script" "$@"
                 else
-                    print_warning "Failed to update script, continuing with current version"
-                    rm -f "$temp_script"
+                    print_warning "Failed to download updated script, continuing with current version"
                 fi
             else
-                print_warning "Failed to fetch updated script, continuing with current version"
-                rm -f "$temp_script"
+                print_warning "Failed to fetch updates, continuing with current version"
             fi
-        else
-            print_warning "Failed to fetch updates, continuing with current version"
         fi
     fi
 }
@@ -931,5 +936,17 @@ main() {
     run_plugins "post-release"
     print_success "Release v$new_version successful!"
 }
+
+# Cleanup function to remove temporary execution script
+cleanup_temp_script() {
+    # Keep .release-exec as backup - don't clean it up
+    # This provides a fallback if the repo becomes unavailable
+    if [[ -f ".release-exec" ]]; then
+        print_info "Keeping .release-exec as backup"
+    fi
+}
+
+# Set up cleanup on script exit
+trap cleanup_temp_script EXIT
 
 main "$@"
