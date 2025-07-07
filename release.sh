@@ -298,25 +298,40 @@ update_version() {
 build_project() {
     local version=$1
     local artifact_id=$2
+    
+    print_info "Building project with version: $version, artifact: $artifact_id"
+    
     case "$BUILD_TOOL" in
         "maven")
             local build_cmd="mvn clean package"
             if [[ "$SKIP_TESTS" == "true" ]]; then
                 build_cmd="$build_cmd -DskipTests"
             fi
-            execute $build_cmd
+            
+            print_info "Running: $build_cmd"
+            if ! execute $build_cmd; then
+                print_error "Maven build failed!"
+                return 1
+            fi
             
             # Look for the actual JAR file (Spring Boot creates repackaged JARs)
             local expected_jar="target/${artifact_id}-${version}.jar"
+            print_info "Looking for JAR at: $expected_jar"
+            
             if [[ -f "$expected_jar" ]]; then
+                print_info "Found expected JAR: $expected_jar"
                 echo "$expected_jar"
             else
                 # Look for any JAR file in target directory
+                print_info "Expected JAR not found, searching for any JAR in target/..."
                 local found_jar=$(find target -name "*.jar" -type f | head -1)
                 if [[ -n "$found_jar" ]]; then
+                    print_info "Found JAR: $found_jar"
                     echo "$found_jar"
                 else
                     print_error "No JAR file found in target directory"
+                    print_info "Available files in target/:"
+                    ls -la target/ 2>/dev/null || print_info "target/ directory not found"
                     return 1
                 fi
             fi
@@ -326,19 +341,31 @@ build_project() {
             if [[ "$SKIP_TESTS" == "true" ]]; then
                 build_cmd="$build_cmd -x test"
             fi
-            execute $build_cmd
+            
+            print_info "Running: $build_cmd"
+            if ! execute $build_cmd; then
+                print_error "Gradle build failed!"
+                return 1
+            fi
             
             # Look for the actual JAR file
             local expected_jar="build/libs/${artifact_id}-${version}.jar"
+            print_info "Looking for JAR at: $expected_jar"
+            
             if [[ -f "$expected_jar" ]]; then
+                print_info "Found expected JAR: $expected_jar"
                 echo "$expected_jar"
             else
                 # Look for any JAR file in build/libs directory
+                print_info "Expected JAR not found, searching for any JAR in build/libs/..."
                 local found_jar=$(find build/libs -name "*.jar" -type f | head -1)
                 if [[ -n "$found_jar" ]]; then
+                    print_info "Found JAR: $found_jar"
                     echo "$found_jar"
                 else
                     print_error "No JAR file found in build/libs directory"
+                    print_info "Available files in build/libs/:"
+                    ls -la build/libs/ 2>/dev/null || print_info "build/libs/ directory not found"
                     return 1
                 fi
             fi
@@ -686,8 +713,8 @@ main() {
     fi
     print_info "Project name: $project_name"
 
-    # Sync VERSION file with pom.xml to prevent mismatches
-    print_info "=== Version Detection Debug ==="
+    # Get current version from VERSION file or POM, but don't auto-sync
+    print_info "=== Version Detection ==="
     local pom_version=$(get_current_version)
     print_info "POM version detected: ${pom_version:-"FAILED"}"
     
@@ -699,16 +726,11 @@ main() {
         print_info "VERSION file does not exist"
     fi
     
-    local current_version="$pom_version"
-    if [[ -n "$pom_version" && -n "$file_version" && "$pom_version" != "$file_version" ]]; then
-        print_warning "Version mismatch detected: POM ($pom_version) vs VERSION file ($file_version)"
-        print_info "Using POM version as authoritative source and updating VERSION file..."
-        execute "echo" "$pom_version" ">" "$VERSION_FILE"
+    # Use VERSION file as primary source, fallback to POM
+    local current_version="$file_version"
+    if [[ -z "$current_version" && -n "$pom_version" ]]; then
+        print_info "No VERSION file, using POM version: $pom_version"
         current_version="$pom_version"
-        print_info "VERSION file updated to: $current_version"
-    elif [[ -z "$current_version" && -n "$file_version" ]]; then
-        print_info "No POM version found, using VERSION file: $file_version"
-        current_version="$file_version"
     elif [[ -z "$current_version" ]]; then
         print_warning "No version found. Using default: $DEFAULT_STARTING_VERSION"
         current_version=$DEFAULT_STARTING_VERSION
@@ -716,7 +738,7 @@ main() {
         print_info "Created VERSION file with default: $current_version"
     fi
     
-    print_info "Final current version: $current_version (POM: ${pom_version:-"N/A"}, File: ${file_version:-"N/A"})"
+    print_info "Current version for increment: $current_version (POM: ${pom_version:-"N/A"}, File: ${file_version:-"N/A"})"
 
     echo "Version options:"
     echo "1) patch ($(increment_version "$current_version" "patch"))"
@@ -749,25 +771,29 @@ main() {
         commit_msg="Release v$new_version"
     fi
 
-    print_info "Release plan:"
-    print_info "  1. Update version to $new_version"
-    print_info "  2. Commit changes with message: '$commit_msg'"
-    print_info "  3. Create and push tag: v$new_version"
-    print_info "  4. Build project"
-    print_info "  5. Create GitHub release"
-    read -p "Proceed? (y/N): " proceed_choice
+    print_info "=== RELEASE PROCESS ==="
+    print_info "1. Write VERSION file to: $new_version"
+    print_info "2. Update POM version to: $new_version"
+    print_info "3. Build project with new version"
+    print_info "4. Commit and push changes"
+    print_info "5. Create and push git tag: v$new_version"
+    print_info "6. Create GitHub release"
+    print_info "7. Upload JAR to release"
+    read -p "Proceed with release? (y/N): " proceed_choice
     if [[ ! "$proceed_choice" =~ ^[Yy]$ ]]; then
         print_info "Release cancelled."
         exit 0
     fi
 
-    # STEP 1: Update VERSION file and project version FIRST
-    print_info "=== Step 1: Updating versions ==="
+    # STEP 1: Update VERSION file
+    print_info "=== Step 1: Updating VERSION file ==="
     execute "echo" "$new_version" ">" "$VERSION_FILE"
-    print_info "Updated VERSION file to: $new_version"
+    print_info "✓ Updated VERSION file to: $new_version"
     
+    # STEP 2: Update POM version
+    print_info "=== Step 2: Updating POM version ==="
     update_version "$new_version"
-    print_info "Updated POM version to: $new_version"
+    print_info "✓ Updated POM version to: $new_version"
     
     # Verify the version was updated correctly
     local verify_version=$(get_current_version)
@@ -776,40 +802,48 @@ main() {
         print_error "Version update failed! POM still shows: $verify_version"
         exit 1
     fi
+    print_info "✓ Version update verified"
 
-    run_plugins "pre-commit"
-    execute "git" "add" "."
-    execute "git" "commit" "-m" "$commit_msg"
-    execute "git" "push"
-
-    execute "git" "tag" "-a" "v$new_version" "-m" "$commit_msg"
-    execute "git" "push" "origin" "v$new_version"
-
-    # STEP 4: Build project with the updated version
-    print_info "=== Step 4: Building project ==="
+    # STEP 3: Build project with the updated version
+    print_info "=== Step 3: Building project ==="
     local artifact_path=$(build_project "$new_version" "$project_name")
     run_plugins "post-build"
     
     # Verify the JAR was built with the correct version
     if [[ -n "$artifact_path" && -f "$artifact_path" ]]; then
-        print_info "JAR built successfully: $artifact_path"
-        print_info "JAR size: $(du -h "$artifact_path" | cut -f1)"
+        print_info "✓ JAR built successfully: $artifact_path"
+        print_info "✓ JAR size: $(du -h "$artifact_path" | cut -f1)"
         
         # Check if JAR filename contains the correct version
         local jar_filename=$(basename "$artifact_path")
         if [[ "$jar_filename" =~ $new_version ]]; then
-            print_success "JAR filename contains correct version: $jar_filename"
+            print_success "✓ JAR filename contains correct version: $jar_filename"
         else
-            print_warning "JAR filename may not contain correct version: $jar_filename"
+            print_warning "⚠ JAR filename may not contain correct version: $jar_filename"
         fi
     else
-        print_error "JAR build failed or file not found: $artifact_path"
+        print_error "✗ JAR build failed or file not found: $artifact_path"
         exit 1
     fi
 
-    # Check if release already exists
+    # STEP 4: Commit and push changes
+    print_info "=== Step 4: Committing and pushing changes ==="
+    run_plugins "pre-commit"
+    execute "git" "add" "."
+    execute "git" "commit" "-m" "$commit_msg"
+    execute "git" "push"
+    print_info "✓ Changes committed and pushed"
+
+    # STEP 5: Create and push git tag
+    print_info "=== Step 5: Creating and pushing git tag ==="
+    execute "git" "tag" "-a" "v$new_version" "-m" "$commit_msg"
+    execute "git" "push" "origin" "v$new_version"
+    print_info "✓ Git tag v$new_version created and pushed"
+
+    # STEP 6: Create GitHub release
+    print_info "=== Step 6: Creating GitHub release ==="
     if [ "$DRY_RUN" = false ] && gh release view "v$new_version" > /dev/null 2>&1; then
-        print_info "Release v$new_version already exists. Skipping creation and uploading JAR..."
+        print_info "Release v$new_version already exists. Skipping creation..."
     else
         if ! create_github_release_with_retry "v$new_version" "Release v$new_version" "$release_notes" "$artifact_path"; then
             print_error "Failed to create GitHub release."
