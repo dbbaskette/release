@@ -36,7 +36,7 @@ print_error() {
 # ==============================================================================
 
 download_latest_script() {
-    local exec_script=".release-exec"
+    local exec_script="$(pwd)/.release-exec"
     
     # Check if we're in a git repository
     if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -69,18 +69,28 @@ download_latest_script() {
 # ==============================================================================
 
 main() {
-    local exec_script=".release-exec"
+    local exec_script="$(pwd)/.release-exec"
     
     # Check if we already have the execution script
     if [[ -f "$exec_script" ]]; then
         print_info "Found existing script: $exec_script"
+        print_info "Checking permissions..."
+        ls -la "$exec_script"
         print_info "Executing latest version..."
-        exec "./$exec_script" "$@"
+        exec "$exec_script" "$@"
+    elif [[ -f ".release-exec" ]]; then
+        print_info "Found script in current directory: .release-exec"
+        print_info "Checking permissions..."
+        ls -la ".release-exec"
+        print_info "Executing latest version..."
+        exec "./.release-exec" "$@"
     else
         print_info "No existing script found. Downloading latest version..."
         if download_latest_script; then
+            print_info "Checking permissions..."
+            ls -la "$exec_script"
             print_info "Executing downloaded version..."
-            exec "./$exec_script" "$@"
+            exec "$exec_script" "$@"
         else
             print_error "Failed to download script. Cannot continue."
             exit 1
