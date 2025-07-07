@@ -250,7 +250,32 @@ get_project_info() {
 get_current_version() {
     case "$BUILD_TOOL" in
         "maven")
-            xmlstarlet sel -N pom=http://maven.apache.org/POM/4.0.0 -t -v "/pom:project/pom:version" pom.xml
+            # Try multiple approaches to get version from pom.xml
+            local version=""
+            
+            # Method 1: Using xmlstarlet with namespace
+            version=$(xmlstarlet sel -N pom=http://maven.apache.org/POM/4.0.0 -t -v "/pom:project/pom:version" pom.xml 2>/dev/null)
+            if [[ -n "$version" ]]; then
+                echo "$version"
+                return 0
+            fi
+            
+            # Method 2: Using xmlstarlet without namespace
+            version=$(xmlstarlet sel -t -v "/project/version" pom.xml 2>/dev/null)
+            if [[ -n "$version" ]]; then
+                echo "$version"
+                return 0
+            fi
+            
+            # Method 3: Using grep as fallback
+            version=$(grep -oP "<version>\K[^<]+" pom.xml | head -1)
+            if [[ -n "$version" ]]; then
+                echo "$version"
+                return 0
+            fi
+            
+            print_error "Could not extract version from pom.xml"
+            return 1
             ;;
         "gradle")
             grep -oP "version = '\K[^']+" build.gradle.kts
@@ -662,10 +687,16 @@ main() {
     print_info "Project name: $project_name"
 
     # Sync VERSION file with pom.xml to prevent mismatches
+    print_info "=== Version Detection Debug ==="
     local pom_version=$(get_current_version)
+    print_info "POM version detected: ${pom_version:-"FAILED"}"
+    
     local file_version=""
     if [[ -f "$VERSION_FILE" ]]; then
-        file_version=$(cat "$VERSION_FILE")
+        file_version=$(cat "$VERSION_FILE" | tr -d ' \n\r')
+        print_info "VERSION file content: ${file_version:-"EMPTY"}"
+    else
+        print_info "VERSION file does not exist"
     fi
     
     local current_version="$pom_version"
@@ -674,15 +705,18 @@ main() {
         print_info "Using POM version as authoritative source and updating VERSION file..."
         execute "echo" "$pom_version" ">" "$VERSION_FILE"
         current_version="$pom_version"
+        print_info "VERSION file updated to: $current_version"
     elif [[ -z "$current_version" && -n "$file_version" ]]; then
+        print_info "No POM version found, using VERSION file: $file_version"
         current_version="$file_version"
     elif [[ -z "$current_version" ]]; then
         print_warning "No version found. Using default: $DEFAULT_STARTING_VERSION"
         current_version=$DEFAULT_STARTING_VERSION
         execute "echo" "$current_version" ">" "$VERSION_FILE"
+        print_info "Created VERSION file with default: $current_version"
     fi
     
-    print_info "Current version: $current_version (POM: ${pom_version:-"N/A"}, File: ${file_version:-"N/A"})"
+    print_info "Final current version: $current_version (POM: ${pom_version:-"N/A"}, File: ${file_version:-"N/A"})"
 
     echo "Version options:"
     echo "1) patch ($(increment_version "$current_version" "patch"))"
@@ -743,11 +777,20 @@ main() {
     run_plugins "post-build"
     
     # Ensure VERSION file matches the actual version used in build
+    print_info "=== Post-Build Version Sync ==="
     local actual_version=$(get_current_version)
+    print_info "Post-build POM version: ${actual_version:-"FAILED"}"
+    print_info "Target version was: $new_version"
+    
     if [[ -n "$actual_version" && "$actual_version" != "$new_version" ]]; then
         print_warning "POM version ($actual_version) differs from target version ($new_version). Syncing..."
         new_version="$actual_version"
         execute "echo" "$new_version" ">" "$VERSION_FILE"
+        print_info "Updated VERSION file to: $new_version"
+    elif [[ -z "$actual_version" ]]; then
+        print_warning "Could not detect POM version after build"
+    else
+        print_info "Version sync OK: POM ($actual_version) matches target ($new_version)"
     fi
 
     # Check if release already exists
