@@ -309,7 +309,7 @@ build_project() {
             fi
             
             print_info "Running: $build_cmd"
-            if ! execute $build_cmd; then
+            if ! execute $build_cmd > /dev/null 2>&1; then
                 print_error "Maven build failed!"
                 return 1
             fi
