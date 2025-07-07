@@ -72,14 +72,42 @@ main() {
         print_info "Found existing script: $exec_script"
         print_info "Checking permissions..."
         ls -la "$exec_script"
-        print_info "Executing latest version..."
-        exec "$exec_script" "$@"
+        
+        # Check if file is empty or not executable
+        if [[ ! -s "$exec_script" ]] || [[ ! -x "$exec_script" ]]; then
+            print_warning "File is empty or not executable, removing and downloading fresh..."
+            rm -f "$exec_script"
+            if download_latest_script; then
+                print_info "Executing downloaded version..."
+                exec "$exec_script" "$@"
+            else
+                print_error "Failed to download script. Cannot continue."
+                exit 1
+            fi
+        else
+            print_info "Executing latest version..."
+            exec "$exec_script" "$@"
+        fi
     elif [[ -f ".release-exec" ]]; then
         print_info "Found script in current directory: .release-exec"
         print_info "Checking permissions..."
         ls -la ".release-exec"
-        print_info "Executing latest version..."
-        exec "./.release-exec" "$@"
+        
+        # Check if file is empty or not executable
+        if [[ ! -s ".release-exec" ]] || [[ ! -x ".release-exec" ]]; then
+            print_warning "File is empty or not executable, removing and downloading fresh..."
+            rm -f ".release-exec"
+            if download_latest_script; then
+                print_info "Executing downloaded version..."
+                exec "$exec_script" "$@"
+            else
+                print_error "Failed to download script. Cannot continue."
+                exit 1
+            fi
+        else
+            print_info "Executing latest version..."
+            exec "./.release-exec" "$@"
+        fi
     else
         print_info "No existing script found. Downloading latest version..."
         if download_latest_script; then
