@@ -606,7 +606,7 @@ upload_artifact_to_release() {
 revert_version_changes() {
     local original_version=$1
     print_warning "Reverting version changes..."
-    execute "echo" "$original_version" ">" "$VERSION_FILE"
+            echo "$original_version" > "$VERSION_FILE"
     update_version "$original_version"
 }
 
@@ -663,7 +663,7 @@ upload_only_main() {
     if [[ -n "$latest_release_version" && "$latest_release_version" != "$current_version" ]]; then
         print_warning "VERSION file ($current_version) is out of sync with latest release ($latest_release_version)."
         print_info "Updating VERSION file to match latest release..."
-        execute "echo" "$latest_release_version" ">" "$VERSION_FILE"
+        echo "$latest_release_version" > "$VERSION_FILE"
         current_version="$latest_release_version"
     fi
 
@@ -734,7 +734,7 @@ main() {
     elif [[ -z "$current_version" ]]; then
         print_warning "No version found. Using default: $DEFAULT_STARTING_VERSION"
         current_version=$DEFAULT_STARTING_VERSION
-        execute "echo" "$current_version" ">" "$VERSION_FILE"
+        echo "$current_version" > "$VERSION_FILE"
         print_info "Created VERSION file with default: $current_version"
     fi
     
@@ -787,7 +787,7 @@ main() {
 
     # STEP 1: Update VERSION file
     print_info "=== Step 1: Updating VERSION file ==="
-    execute "echo" "$new_version" ">" "$VERSION_FILE"
+    echo "$new_version" > "$VERSION_FILE"
     print_info "✓ Updated VERSION file to: $new_version"
     
     # STEP 2: Update POM version
@@ -921,7 +921,7 @@ main() {
         local version_in_file=$(cat "$VERSION_FILE")
         if [[ "$version_in_file" != "$new_version" ]]; then
             print_warning "VERSION file contains $version_in_file but release was $new_version. Updating..."
-            execute "echo" "$new_version" ">" "$VERSION_FILE"
+            echo "$new_version" > "$VERSION_FILE"
             execute "git" "add" "$VERSION_FILE"
             execute "git" "commit" "-m" "Update VERSION file to $new_version"
             execute "git" "push"
