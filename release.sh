@@ -37,29 +37,25 @@ print_error() {
 
 download_latest_script() {
     local exec_script="$(pwd)/.release-exec"
+    local repo_url="https://github.com/dbbaskette/release"
     
-    # Check if we're in a git repository
-    if ! git rev-parse --git-dir > /dev/null 2>&1; then
-        print_warning "Not in a git repository. Cannot download latest version."
-        return 1
-    fi
-
-    print_info "Checking for latest version..."
+    print_info "Downloading latest version from $repo_url..."
     
-    # Fetch latest changes
-    if git fetch origin > /dev/null 2>&1; then
-                    # Get the latest version of the script
-            if git show "origin/HEAD:.release-exec" > "$exec_script" 2>/dev/null; then
+    # Download using curl
+    if curl -sL "$repo_url/raw/main/.release-exec" > "$exec_script" 2>/dev/null; then
+        # Check if the file was actually downloaded (not empty)
+        if [[ -s "$exec_script" ]]; then
             # Make it executable
             chmod +x "$exec_script"
             print_success "Downloaded latest version as $exec_script"
             return 0
         else
-            print_error "Failed to download updated script"
+            print_error "Downloaded file is empty"
+            rm -f "$exec_script"
             return 1
         fi
     else
-        print_error "Failed to fetch updates"
+        print_error "Failed to download from GitHub"
         return 1
     fi
 }
