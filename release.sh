@@ -121,7 +121,7 @@ detect_build_tool() {
     if [[ -n "$BUILD_TOOL" ]]; then
         print_info "Build tool specified in config: $BUILD_TOOL"
         return
-    fi
+    }
 
     if [[ -f "pom.xml" ]]; then
         BUILD_TOOL="maven"
@@ -138,14 +138,14 @@ detect_main_branch() {
     if [[ -n "$MAIN_BRANCH" ]]; then
         print_info "Using main branch from config: $MAIN_BRANCH"
         return
-    fi
+    }
 
     local remote_head=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | cut -d' ' -f5)
     if [[ -n "$remote_head" && "$remote_head" != "(unknown)" ]]; then
         MAIN_BRANCH=$remote_head
         print_info "Auto-detected main branch from remote: $MAIN_BRANCH"
         return
-    fi
+    }
 
     if git show-ref --verify --quiet refs/heads/main; then
         MAIN_BRANCH="main"
@@ -370,7 +370,7 @@ upload_artifact_to_release() {
     if [[ -z "$artifact_path" || ! -f "$artifact_path" ]]; then
         print_error "Artifact not found at: $artifact_path"
         return 1
-    fi
+    }
 
     print_info "Uploading artifact to release v$version..."
     local artifact_name=$(basename "$artifact_path")
@@ -411,7 +411,7 @@ upload_only_main() {
     print_info "=== Upload-Only Release Mode ==="
     if [ "$DRY_RUN" = true ]; then
         print_warning "Running in dry-run mode. No changes will be made."
-    fi
+    }
 
     detect_build_tool
     check_requirements
