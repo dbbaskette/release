@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# set -x # Enable debugging (commented out to reduce output)
+
 # ==============================================================================
 # Generic Project Release Script
 # ==============================================================================
@@ -79,7 +81,7 @@ execute() {
         print_info "[DRY RUN] Would execute: $@"
         return 0
     else
-        print_info "Executing: $@"
+        # print_info "Executing: $@"  # Commented out to reduce verbose output
         "$@"
     fi
 }
@@ -92,9 +94,9 @@ run_plugins() {
     local hook_name=$1
     local hook_dir="$PLUGINS_DIR/$hook_name"
     if [ -d "$hook_dir" ]; then
-        print_info "Running $hook_name plugins..."
+        # print_info "Running $hook_name plugins..."  # Commented out to reduce verbose output
         for plugin in $(find "$hook_dir" -type f -executable | sort); do
-            print_info "Executing plugin: $plugin"
+            # print_info "Executing plugin: $plugin"  # Commented out to reduce verbose output
             execute "$plugin"
         done
     fi
@@ -119,9 +121,9 @@ done
 
 detect_build_tool() {
     if [[ -n "$BUILD_TOOL" ]]; then
-        print_info "Build tool specified in config: $BUILD_TOOL"
+        # print_info "Build tool specified in config: $BUILD_TOOL"  # Commented out to reduce verbose output
         return
-    }
+    fi
 
     if [[ -f "pom.xml" ]]; then
         BUILD_TOOL="maven"
@@ -131,21 +133,21 @@ detect_build_tool() {
         print_error "Could not detect build tool. Please specify BUILD_TOOL in .release.conf"
         exit 1
     fi
-    print_info "Detected build tool: $BUILD_TOOL"
+    # print_info "Detected build tool: $BUILD_TOOL"  # Commented out to reduce verbose output
 }
 
 detect_main_branch() {
     if [[ -n "$MAIN_BRANCH" ]]; then
-        print_info "Using main branch from config: $MAIN_BRANCH"
+        # print_info "Using main branch from config: $MAIN_BRANCH"  # Commented out to reduce verbose output
         return
-    }
+    fi
 
     local remote_head=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | cut -d' ' -f5)
     if [[ -n "$remote_head" && "$remote_head" != "(unknown)" ]]; then
         MAIN_BRANCH=$remote_head
-        print_info "Auto-detected main branch from remote: $MAIN_BRANCH"
+        # print_info "Auto-detected main branch from remote: $MAIN_BRANCH"  # Commented out to reduce verbose output
         return
-    }
+    fi
 
     if git show-ref --verify --quiet refs/heads/main; then
         MAIN_BRANCH="main"
@@ -155,7 +157,7 @@ detect_main_branch() {
         print_warning "Could not auto-detect main branch. Using fallback: main. Set MAIN_BRANCH in .release.conf to override."
         MAIN_BRANCH="main"
     fi
-    print_info "Using detected/fallback main branch: $MAIN_BRANCH"
+    # print_info "Using detected/fallback main branch: $MAIN_BRANCH"  # Commented out to reduce verbose output
 }
 
 get_project_info() {
@@ -370,7 +372,7 @@ upload_artifact_to_release() {
     if [[ -z "$artifact_path" || ! -f "$artifact_path" ]]; then
         print_error "Artifact not found at: $artifact_path"
         return 1
-    }
+    fi
 
     print_info "Uploading artifact to release v$version..."
     local artifact_name=$(basename "$artifact_path")
@@ -411,7 +413,7 @@ upload_only_main() {
     print_info "=== Upload-Only Release Mode ==="
     if [ "$DRY_RUN" = true ]; then
         print_warning "Running in dry-run mode. No changes will be made."
-    }
+    fi
 
     detect_build_tool
     check_requirements
