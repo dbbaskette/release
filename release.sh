@@ -138,14 +138,14 @@ detect_main_branch() {
     if [[ -n "$MAIN_BRANCH" ]]; then
         print_info "Using main branch from config: $MAIN_BRANCH"
         return
-    }
+    fi
 
     local remote_head=$(git remote show origin 2>/dev/null | grep 'HEAD branch' | cut -d' ' -f5)
     if [[ -n "$remote_head" && "$remote_head" != "(unknown)" ]]; then
         MAIN_BRANCH=$remote_head
         print_info "Auto-detected main branch from remote: $MAIN_BRANCH"
         return
-    }
+    fi
 
     if git show-ref --verify --quiet refs/heads/main; then
         MAIN_BRANCH="main"
@@ -262,14 +262,14 @@ check_requirements() {
     if [ ${#missing_tools[@]} -ne 0 ]; then
         print_error "Missing required tools: ${missing_tools[*]}"
         exit 1
-    }
+    fi
 }
 
 check_git_status() {
     if ! git rev-parse --git-dir > /dev/null 2>&1; then
         print_error "Not in a git repository"
         exit 1
-    }
+    fi
     execute "git" "fetch" "--all"
     local current_branch=$(git branch --show-current)
     if [[ "$current_branch" != "$MAIN_BRANCH" ]]; then
@@ -278,8 +278,8 @@ check_git_status() {
         if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
             print_info "Release cancelled."
             exit 0
-        }
-    }
+        fi
+    fi
     if ! git diff-index --quiet HEAD --; then
         print_warning "You have uncommitted changes that will be included in the release."
         git status --short
@@ -287,8 +287,8 @@ check_git_status() {
         if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
             print_info "Release cancelled."
             exit 0
-        }
-    }
+        fi
+    fi
 }
 
 generate_changelog() {
@@ -386,9 +386,16 @@ upload_artifact_to_release() {
     print_success "Artifact uploaded successfully."
 }
 
-rollback_changes() {
+revert_version_changes() {
+    local original_version=$1
+    print_warning "Reverting version changes..."
+    execute "echo" "$original_version" ">" "$VERSION_FILE"
+    update_version "$original_version"
+}
+
+rollback_git_changes() {
     local version=$1
-    print_warning "Rolling back changes..."
+    print_warning "Rolling back git changes..."
     run_plugins "on-error"
     execute "git" "tag" "-d" "v$version"
     execute "git" "push" "--delete" "origin" "v$version"
@@ -445,7 +452,7 @@ main() {
     if [ "$UPLOAD_ONLY" = true ]; then
         upload_only_main "$@"
         exit 0
-    }
+    fi
 
     trap 'run_plugins "on-error"' ERR
 
@@ -495,9 +502,6 @@ main() {
     esac
     print_info "New version: $new_version"
 
-    execute "echo" "$new_version" ">" "$VERSION_FILE"
-    update_version "$new_version"
-
     local changelog=$(generate_changelog)
     echo "Generated changelog:"
     echo "$changelog"
@@ -512,16 +516,19 @@ main() {
     fi
 
     print_info "Release plan:"
-    print_info "  1. Commit changes with message: '$commit_msg'"
-    print_info "  2. Create and push tag: v$new_version"
-    print_info "  3. Build project"
-    print_info "  4. Create GitHub release"
+    print_info "  1. Update version to $new_version"
+    print_info "  2. Commit changes with message: '$commit_msg'"
+    print_info "  3. Create and push tag: v$new_version"
+    print_info "  4. Build project"
+    print_info "  5. Create GitHub release"
     read -p "Proceed? (y/N): " proceed_choice
     if [[ ! "$proceed_choice" =~ ^[Yy]$ ]]; then
         print_info "Release cancelled."
-        rollback_changes "$new_version"
         exit 0
-    }
+    fi
+
+    execute "echo" "$new_version" ">" "$VERSION_FILE"
+    update_version "$new_version"
 
     run_plugins "pre-commit"
     execute "git" "add" "."
@@ -538,7 +545,7 @@ main() {
         print_error "Failed to create GitHub release."
         read -p "Rollback changes? (y/N): " rollback_choice
         if [[ "$rollback_choice" =~ ^[Yy]$ ]]; then
-            rollback_changes "$new_version"
+            rollback_git_changes "$new_version"
         fi
         exit 1
     fi
