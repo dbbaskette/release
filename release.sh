@@ -61,11 +61,45 @@ download_latest_script() {
 }
 
 # ==============================================================================
+# GITIGNORE MANAGEMENT
+# ==============================================================================
+
+update_gitignore() {
+    local gitignore_file=".gitignore"
+    local release_sh="release.sh"
+    local release_exec=".release-exec"
+    
+    # Create .gitignore if it doesn't exist
+    if [[ ! -f "$gitignore_file" ]]; then
+        touch "$gitignore_file"
+        print_info "Created .gitignore file"
+    fi
+    
+    # Check if entries already exist
+    local has_release_sh=$(grep -q "^$release_sh$" "$gitignore_file" && echo "yes" || echo "no")
+    local has_release_exec=$(grep -q "^$release_exec$" "$gitignore_file" && echo "yes" || echo "no")
+    
+    # Add entries if they don't exist
+    if [[ "$has_release_sh" == "no" ]]; then
+        echo "$release_sh" >> "$gitignore_file"
+        print_info "Added $release_sh to .gitignore"
+    fi
+    
+    if [[ "$has_release_exec" == "no" ]]; then
+        echo "$release_exec" >> "$gitignore_file"
+        print_info "Added $release_exec to .gitignore"
+    fi
+}
+
+# ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
 
 main() {
     local exec_script="$(pwd)/.release-exec"
+    
+    # Update .gitignore to exclude release scripts
+    update_gitignore
     
     # Check if we already have the execution script
     if [[ -f "$exec_script" ]]; then
