@@ -717,8 +717,8 @@ main() {
     print_info "3. Build project with new version"
     print_info "4. Commit and push changes"
     print_info "5. Create and push git tag: v$new_version"
-    print_info "6. Create GitHub release"
-    print_info "7. Upload JAR to release"
+    print_info "6. Create GitHub release with JAR upload"
+    print_info "7. Complete release process"
     read -p "Proceed with release? (y/N): " proceed_choice
     if [[ ! "$proceed_choice" =~ ^[Yy]$ ]]; then
         print_info "Release cancelled."
@@ -795,66 +795,8 @@ main() {
         fi
     fi
 
-    # STEP 5: Upload JAR to GitHub release
-    print_info "=== Step 5: JAR Upload Phase ==="
-    print_info "Release version: $new_version"
-    print_info "JAR file path: $artifact_path"
-    
-    if [[ -n "$artifact_path" && -f "$artifact_path" ]]; then
-        print_info "JAR file exists and size: $(du -h "$artifact_path" | cut -f1)"
-        
-        # Check if release exists
-        if [ "$DRY_RUN" = false ]; then
-            if gh release view "v$new_version" > /dev/null 2>&1; then
-                print_info "Release v$new_version exists, proceeding with upload..."
-            else
-                print_error "Release v$new_version does not exist! Cannot upload JAR."
-                print_info "Available releases:"
-                gh release list --limit 5
-                exit 1
-            fi
-        fi
-        
-        # Force upload with multiple attempts
-        local upload_success=false
-        for attempt in 1 2 3; do
-            print_info "JAR upload attempt $attempt of 3..."
-            if upload_artifact_to_release "$new_version" "$artifact_path"; then
-                print_success "JAR upload completed successfully on attempt $attempt!"
-                upload_success=true
-                break
-            else
-                print_warning "Upload attempt $attempt failed."
-                if [ $attempt -lt 3 ]; then
-                    print_info "Waiting 5 seconds before retry..."
-                    sleep 5
-                fi
-            fi
-        done
-        
-        if [ "$upload_success" = false ]; then
-            print_error "All JAR upload attempts failed!"
-            print_info "Manual upload command: gh release upload v$new_version '$artifact_path'"
-            
-            # Try one more time with direct gh command (bypassing our wrapper)
-            print_info "Attempting direct upload as fallback..."
-            if gh release upload "v$new_version" "$artifact_path" 2>/dev/null; then
-                print_success "Direct upload succeeded!"
-            else
-                print_error "Direct upload also failed. Please upload manually."
-                print_info "Debug info:"
-                print_info "  - JAR path: $artifact_path"
-                print_info "  - JAR exists: $([[ -f "$artifact_path" ]] && echo "YES" || echo "NO")"
-                print_info "  - Release exists: $(gh release view "v$new_version" > /dev/null 2>&1 && echo "YES" || echo "NO")"
-            fi
-        fi
-    else
-        print_error "JAR file not found at: $artifact_path"
-        if [[ -n "$artifact_path" ]]; then
-            print_info "Available files in target directory:"
-            ls -la target/ 2>/dev/null || print_info "target/ directory not found"
-        fi
-    fi
+    # STEP 7: JAR upload is handled during release creation
+    print_info "=== Step 7: JAR upload completed during release creation ==="
 
     # Ensure VERSION file is committed and pushed
     if [[ -f "$VERSION_FILE" ]]; then
