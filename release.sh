@@ -1,9 +1,11 @@
 #!/bin/bash
 
 # ==============================================================================
-# RELEASE SCRIPT WRAPPER
+# SELF-UPDATING RELEASE SCRIPT WRAPPER
 # ==============================================================================
-# This is a minimal wrapper that downloads and executes the latest release script
+# This is a minimal wrapper that automatically downloads and executes the latest 
+# release script from GitHub. It will always try to get the latest version,
+# but falls back to local version if download fails.
 # All functionality is contained in .release-exec
 
 set -e
@@ -39,7 +41,7 @@ download_latest_script() {
     local exec_script="$(pwd)/.release-exec"
     local repo_url="https://github.com/dbbaskette/release"
     
-    print_info "Downloading latest version from $repo_url..."
+    print_info "🔄 Self-updating: Downloading latest version from $repo_url..."
     
     # Download using curl
     if curl -sL "$repo_url/raw/main/.release-exec" > "$exec_script" 2>/dev/null; then
@@ -47,15 +49,15 @@ download_latest_script() {
         if [[ -s "$exec_script" ]]; then
             # Make it executable
             chmod +x "$exec_script"
-            print_success "Downloaded latest version as $exec_script"
+            print_success "✅ Self-update successful: Downloaded latest version as $exec_script"
             return 0
         else
-            print_error "Downloaded file is empty"
+            print_error "❌ Downloaded file is empty"
             rm -f "$exec_script"
             return 1
         fi
     else
-        print_error "Failed to download from GitHub"
+        print_error "❌ Failed to download from GitHub"
         return 1
     fi
 }
@@ -101,56 +103,47 @@ main() {
     # Update .gitignore to exclude release scripts
     update_gitignore
     
-    # Check if we already have the execution script
-    if [[ -f "$exec_script" ]]; then
-        print_info "Found existing script: $exec_script"
+    # Always try to download the latest version first
+    print_info "🚀 Release script self-update process starting..."
+    print_info "Attempting to download latest version..."
+    if download_latest_script; then
+        print_info "✅ Self-update completed successfully"
         print_info "Checking permissions..."
         ls -la "$exec_script"
-        
-        # Check if file is empty or not executable
-        if [[ ! -s "$exec_script" ]] || [[ ! -x "$exec_script" ]]; then
-            print_warning "File is empty or not executable, removing and downloading fresh..."
-            rm -f "$exec_script"
-            if download_latest_script; then
-                print_info "Executing downloaded version..."
-                exec "$exec_script" "$@"
-            else
-                print_error "Failed to download script. Cannot continue."
-                exit 1
-            fi
-        else
-            print_info "Executing latest version..."
-            exec "$exec_script" "$@"
-        fi
-    elif [[ -f ".release-exec" ]]; then
-        print_info "Found script in current directory: .release-exec"
-        print_info "Checking permissions..."
-        ls -la ".release-exec"
-        
-        # Check if file is empty or not executable
-        if [[ ! -s ".release-exec" ]] || [[ ! -x ".release-exec" ]]; then
-            print_warning "File is empty or not executable, removing and downloading fresh..."
-            rm -f ".release-exec"
-            if download_latest_script; then
-                print_info "Executing downloaded version..."
-                exec "$exec_script" "$@"
-            else
-                print_error "Failed to download script. Cannot continue."
-                exit 1
-            fi
-        else
-            print_info "Executing latest version..."
-            exec "./.release-exec" "$@"
-        fi
+        print_info "Executing latest version..."
+        exec "$exec_script" "$@"
     else
-        print_info "No existing script found. Downloading latest version..."
-        if download_latest_script; then
+        print_warning "⚠️  Self-update failed. Checking for local fallback..."
+        
+        # Check for local .release-exec file
+        if [[ -f "$exec_script" ]]; then
+            print_info "Found local script: $exec_script"
             print_info "Checking permissions..."
             ls -la "$exec_script"
-            print_info "Executing downloaded version..."
-            exec "$exec_script" "$@"
+            
+            # Check if file is valid (not empty and executable)
+            if [[ -s "$exec_script" ]] && [[ -x "$exec_script" ]]; then
+                print_warning "📦 Using local fallback version (not latest)"
+                exec "$exec_script" "$@"
+            else
+                print_error "❌ Local script is invalid (empty or not executable). Cannot continue."
+                exit 1
+            fi
+        elif [[ -f ".release-exec" ]]; then
+            print_info "Found local script in current directory: .release-exec"
+            print_info "Checking permissions..."
+            ls -la ".release-exec"
+            
+            # Check if file is valid (not empty and executable)
+            if [[ -s ".release-exec" ]] && [[ -x ".release-exec" ]]; then
+                print_warning "📦 Using local fallback version (not latest)"
+                exec "./.release-exec" "$@"
+            else
+                print_error "❌ Local script is invalid (empty or not executable). Cannot continue."
+                exit 1
+            fi
         else
-            print_error "Failed to download script. Cannot continue."
+            print_error "❌ No local script found and download failed. Cannot continue."
             exit 1
         fi
     fi
