@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://github.com/dbbaskette/release">
-    <img src="https://user-images.githubusercontent.com/8973356/158074298-12345678-1234-1234-1234-123456789012.png" alt="Logo" width="80" height="80">
+    <img src=".github/assets/release.png" alt="Logo" width="80" height="80">
   </a>
 
   <h3 align="center">Project Release Script</h3>
