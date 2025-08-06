@@ -55,7 +55,7 @@ download_latest_script() {
     print_info "🔄 Self-updating: Downloading latest version from $repo_url..."
     
     # Download using curl
-    if curl -sL "$repo_url/raw/main/.release-exec" > "$exec_script" 2>/dev/null; then
+    if curl -sL "$repo_url/raw/main/.release-exec?$(date +%s)" > "$exec_script" 2>/dev/null; then
         # Check if the file was actually downloaded (not empty)
         if [[ -s "$exec_script" ]]; then
             # Make it executable
