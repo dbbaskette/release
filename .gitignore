@@ -21,4 +21,6 @@ Thumbs.db
 
 # Temporary files
 *.tmp
-*.temp 
+*.temp release.sh
+.release-exec
+release.sh
