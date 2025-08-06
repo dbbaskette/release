@@ -110,36 +110,37 @@ update_gitignore() {
 
 main() {
     local exec_script="$(pwd)/.release-exec"
-    local skip_update=false
-    
-    # Check for --no-update flag before doing anything else
-    for arg in "$@"; do
-        if [[ "$arg" == "--no-update" ]]; then
-            skip_update=true
-            break
-        fi
-    done
     
     # Update .gitignore to exclude release scripts
     update_gitignore
     
-    if [[ "$skip_update" == "true" ]]; then
-        print_info "🚀 Release script starting (skipping self-update)..."
-        print_info "Using local version (--no-update flag detected)"
-    else
-        # Always try to download the latest version first
+    # Check if --no-update is requested (simple pass-through logic)
+    local skip_download=false
+    for arg in "$@"; do
+        if [[ "$arg" == "--no-update" ]]; then
+            skip_download=true
+            break
+        fi
+    done
+    
+    # Try to download latest version (unless --no-update specified)
+    if [[ "$skip_download" == "false" ]]; then
         print_info "🚀 Release script self-update process starting..."
         print_info "Attempting to download latest version..."
     fi
     
-    if [[ "$skip_update" == "false" ]] && download_latest_script; then
+    if [[ "$skip_download" == "false" ]] && download_latest_script; then
         print_info "✅ Self-update completed successfully"
         print_info "Checking permissions..."
         ls -la "$exec_script"
         print_info "Executing latest version..."
         exec "$exec_script" "$@"
     else
-        print_warning "⚠️  Self-update failed. Checking for local fallback..."
+        if [[ "$skip_download" == "true" ]]; then
+            print_info "⚠️  Self-update skipped (--no-update flag). Using local version..."
+        else
+            print_warning "⚠️  Self-update failed. Checking for local fallback..."
+        fi
         
         # Check for local .release-exec file
         if [[ -f "$exec_script" ]]; then
