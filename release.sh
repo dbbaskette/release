@@ -110,14 +110,29 @@ update_gitignore() {
 
 main() {
     local exec_script="$(pwd)/.release-exec"
+    local skip_update=false
+    
+    # Check for --no-update flag before doing anything else
+    for arg in "$@"; do
+        if [[ "$arg" == "--no-update" ]]; then
+            skip_update=true
+            break
+        fi
+    done
     
     # Update .gitignore to exclude release scripts
     update_gitignore
     
-    # Always try to download the latest version first
-    print_info "🚀 Release script self-update process starting..."
-    print_info "Attempting to download latest version..."
-    if download_latest_script; then
+    if [[ "$skip_update" == "true" ]]; then
+        print_info "🚀 Release script starting (skipping self-update)..."
+        print_info "Using local version (--no-update flag detected)"
+    else
+        # Always try to download the latest version first
+        print_info "🚀 Release script self-update process starting..."
+        print_info "Attempting to download latest version..."
+    fi
+    
+    if [[ "$skip_update" == "false" ]] && download_latest_script; then
         print_info "✅ Self-update completed successfully"
         print_info "Checking permissions..."
         ls -la "$exec_script"
